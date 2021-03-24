@@ -13,7 +13,6 @@ const port = "8443"
 const logFilePath = "/tmp/heroku.log"
 const logFileMode = 0644
 
-var logFileHandle *os.File
 var logFileMutex sync.Mutex
 
 func loggingHandler(w http.ResponseWriter, req *http.Request) {
