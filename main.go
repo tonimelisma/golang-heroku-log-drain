@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -15,7 +16,23 @@ const logFileMode = 0644
 
 var logFileMutex sync.Mutex
 
+func writeLogLn(logFileHandle *os.File, line string) {
+	n, err := logFileHandle.WriteString(line + "\n")
+	if err != nil {
+		log.Fatal("Error writing to logfile:", n, err.Error())
+	}
+	if n != len(line)+1 {
+		log.Fatal("Didn't write full string:", line)
+	}
+}
+
 func loggingHandler(w http.ResponseWriter, req *http.Request) {
+	log.Println(req.RemoteAddr, req.Method, req.URL.Path)
+
+	if req.Method != "POST" {
+		log.Println("Invalid method:", req.Method)
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
 
 	logFileMutex.Lock()
 	logFileHandle, err := os.OpenFile(logFilePath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, logFileMode)
@@ -24,21 +41,19 @@ func loggingHandler(w http.ResponseWriter, req *http.Request) {
 	}
 	defer logFileHandle.Close()
 
-	log.Printf("New request %v", req.Method)
-	n, err := logFileHandle.WriteString(req.Host)
-	if err != nil {
-		log.Fatal("Error writing to logfile:", n, err.Error())
-	}
-	if n != len(req.Host) {
-		log.Println("Didn't write full string:", req.Host)
-	}
-
+	writeLogLn(logFileHandle, "New request: "+req.Method)
 	for name, headers := range req.Header {
 		for _, h := range headers {
-			log.Printf("%v: %v\n", name, h)
+			writeLogLn(logFileHandle, fmt.Sprintf("%v: %v", name, h))
 		}
 	}
-	log.Printf("\n")
+	writeLogLn(logFileHandle, "")
+	requestBody, err := io.ReadAll(req.Body)
+	if err != nil {
+		log.Println("couldn't read body")
+		w.WriteHeader(http.StatusBadRequest)
+	}
+	writeLogLn(logFileHandle, string(requestBody))
 	logFileMutex.Unlock()
 
 	w.WriteHeader(200)

@@ -1,0 +1,9 @@
+POST http://localhost:8443/log HTTP/1.1
+Content-Type: application/logplex-1
+User-Agent: golang-heroku-log-drain/v1
+Logplex-Msg-Count: 2
+Logplex-Frame-Id: 1
+Logplex-Drain-Token: diipadaapa
+
+83 <40>1 2012-11-30T06:45:29+00:00 host app web.3 - State changed from starting to up
+119 <40>1 2012-11-30T06:45:26+00:00 host app web.3 - Starting process with command `bundle exec rackup config.ru -p 24405`
