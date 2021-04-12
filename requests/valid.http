@@ -1,4 +1,4 @@
-POST http://localhost:8443/log HTTP/1.1
+POST https://localhost:8443/log HTTP/1.1
 Content-Type: application/logplex-1
 User-Agent: golang-heroku-log-drain/v1
 Logplex-Msg-Count: 2

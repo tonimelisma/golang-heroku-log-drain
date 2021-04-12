@@ -1,15 +1,35 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"sync"
+	"time"
 
 	"github.com/joho/godotenv"
 )
+
+type logHeaders struct {
+	contentType string
+	msgCount    int
+	frameID     int
+	drainToken  string
+}
+
+type logMessage struct {
+	priority  int
+	version   int
+	timestamp time.Time
+	hostname  string
+	appname   string
+	procid    string
+	message   string
+}
 
 var logFileMutex sync.Mutex
 
@@ -21,6 +41,52 @@ func writeLogLn(logFileHandle *os.File, line string) {
 	if n != len(line)+1 {
 		log.Fatal("Didn't write full string:", line)
 	}
+}
+func parseLogHeaders(requestHeaders http.Header) (thisLogHeaders logHeaders, err error) {
+
+	for name, headers := range requestHeaders {
+		for _, h := range headers {
+			switch name {
+			case "Content-Type":
+				thisLogHeaders.contentType = h
+			case "Logplex-Msg-Count":
+				i, err := strconv.Atoi(h)
+				if err == nil {
+					thisLogHeaders.msgCount = i
+				}
+			case "Logplex-Frame-Id":
+				i, err := strconv.Atoi(h)
+				if err == nil {
+					thisLogHeaders.frameID = i
+				}
+			case "Logplex-Drain-Token":
+				thisLogHeaders.drainToken = h
+			}
+		}
+	}
+
+	if thisLogHeaders.contentType != "application/logplex-1" {
+		err = error.Error("invalid content-type: " + thisLogHeaders.contentType)
+		return thisLogHeaders, err
+	}
+
+	return
+}
+
+func parseLogBody(requestBody io.ReadCloser) (thisLogMessage logMessage, err error) {
+	// TODO write parsing logic
+	reader := bufio.NewReader(requestBody)
+	octetLength, err := reader.ReadString(byte(" "))
+
+	if err != nil {
+		return thisLogMessage, err
+	}
+
+	fmt.Println("length", octetLength)
+	thisLogMessage.message = "diipa daapa duupa"
+
+	// TODO create array instead of single message
+	return thisLogMessage, nil
 }
 
 func loggingHandler(w http.ResponseWriter, req *http.Request) {
@@ -38,22 +104,26 @@ func loggingHandler(w http.ResponseWriter, req *http.Request) {
 	}
 	defer logFileHandle.Close()
 
-	writeLogLn(logFileHandle, "New request: "+req.Method)
-	for name, headers := range req.Header {
-		for _, h := range headers {
-			writeLogLn(logFileHandle, fmt.Sprintf("%v: %v", name, h))
-		}
-	}
-	writeLogLn(logFileHandle, "")
-	requestBody, err := io.ReadAll(req.Body)
+	thisLogHeaders, err := parseLogHeaders(req.Header)
 	if err != nil {
-		log.Println("couldn't read body")
+		log.Print("couldn't parse body", err.Error())
 		w.WriteHeader(http.StatusBadRequest)
+		return
 	}
-	writeLogLn(logFileHandle, string(requestBody))
-	logFileMutex.Unlock()
 
-	w.WriteHeader(200)
+	writeLogLn(logFileHandle, fmt.Sprintf("frame %v, messages %v, drain token %v", thisLogHeaders.frameID, thisLogHeaders.msgCount, thisLogHeaders.drainToken))
+
+	thisLogMessage, err := parseLogBody(req.Body)
+	if err != nil {
+		log.Print("couldn't parse body", err.Error())
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	writeLogLn(logFileHandle, fmt.Sprintf("%v", thisLogMessage.message))
+
+	logFileMutex.Unlock()
+	w.WriteHeader(http.StatusOK)
 }
 
 func main() {
