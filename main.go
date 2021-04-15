@@ -1,37 +1,27 @@
 package main
 
 import (
-	"bufio"
+	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
 	"strconv"
 	"sync"
-	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/tonimelisma/rfc5424"
 )
 
 type logHeaders struct {
 	contentType string
 	msgCount    int
-	frameID     int
+	frameID     string
 	drainToken  string
 }
 
-type logMessage struct {
-	priority  int
-	version   int
-	timestamp time.Time
-	hostname  string
-	appname   string
-	procid    string
-	message   string
-}
-
 var logFileMutex sync.Mutex
+var logFileHandle *os.File
 
 func writeLogLn(logFileHandle *os.File, line string) {
 	n, err := logFileHandle.WriteString(line + "\n")
@@ -43,7 +33,6 @@ func writeLogLn(logFileHandle *os.File, line string) {
 	}
 }
 func parseLogHeaders(requestHeaders http.Header) (thisLogHeaders logHeaders, err error) {
-
 	for name, headers := range requestHeaders {
 		for _, h := range headers {
 			switch name {
@@ -55,10 +44,7 @@ func parseLogHeaders(requestHeaders http.Header) (thisLogHeaders logHeaders, err
 					thisLogHeaders.msgCount = i
 				}
 			case "Logplex-Frame-Id":
-				i, err := strconv.Atoi(h)
-				if err == nil {
-					thisLogHeaders.frameID = i
-				}
+				thisLogHeaders.frameID = h
 			case "Logplex-Drain-Token":
 				thisLogHeaders.drainToken = h
 			}
@@ -66,63 +52,49 @@ func parseLogHeaders(requestHeaders http.Header) (thisLogHeaders logHeaders, err
 	}
 
 	if thisLogHeaders.contentType != "application/logplex-1" {
-		err = error.Error("invalid content-type: " + thisLogHeaders.contentType)
+		err = errors.New("invalid content-type: " + thisLogHeaders.contentType)
 		return thisLogHeaders, err
 	}
 
 	return
 }
 
-func parseLogBody(requestBody io.ReadCloser) (thisLogMessage logMessage, err error) {
-	// TODO write parsing logic
-	reader := bufio.NewReader(requestBody)
-	octetLength, err := reader.ReadString(byte(" "))
-
-	if err != nil {
-		return thisLogMessage, err
-	}
-
-	fmt.Println("length", octetLength)
-	thisLogMessage.message = "diipa daapa duupa"
-
-	// TODO create array instead of single message
-	return thisLogMessage, nil
-}
-
 func loggingHandler(w http.ResponseWriter, req *http.Request) {
-	log.Println(req.RemoteAddr, req.Method, req.URL.Path)
-
 	if req.Method != "POST" {
-		log.Println("Invalid method:", req.Method)
+		log.Println(req.RemoteAddr, req.Method, req.URL.Path, http.StatusMethodNotAllowed, "invalid method")
 		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
 	}
-
-	logFileMutex.Lock()
-	logFileHandle, err := os.OpenFile(os.Getenv("LOG_DIRECTORY"), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
-	if err != nil {
-		log.Fatal("Error opening logfile:", err.Error())
-	}
-	defer logFileHandle.Close()
 
 	thisLogHeaders, err := parseLogHeaders(req.Header)
 	if err != nil {
-		log.Print("couldn't parse body", err.Error())
+		log.Println(req.RemoteAddr, req.Method, req.URL.Path, thisLogHeaders.drainToken, thisLogHeaders.frameID, http.StatusBadRequest, "couldn't parse headers:", err.Error())
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	writeLogLn(logFileHandle, fmt.Sprintf("frame %v, messages %v, drain token %v", thisLogHeaders.frameID, thisLogHeaders.msgCount, thisLogHeaders.drainToken))
-
-	thisLogMessage, err := parseLogBody(req.Body)
+	messageArray, err := rfc5424.ParseMultiple(req.Body)
 	if err != nil {
-		log.Print("couldn't parse body", err.Error())
+		log.Println(req.RemoteAddr, req.Method, req.URL.Path, thisLogHeaders.drainToken, thisLogHeaders.frameID, http.StatusBadRequest, "couldn't parse body:", err.Error())
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
 
-	writeLogLn(logFileHandle, fmt.Sprintf("%v", thisLogMessage.message))
+	if thisLogHeaders.msgCount != len(messageArray) {
+		log.Println(req.RemoteAddr, req.Method, req.URL.Path, thisLogHeaders.drainToken, thisLogHeaders.frameID, http.StatusBadRequest, "message count/header mismatch:", thisLogHeaders.msgCount, len(messageArray))
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	logFileMutex.Lock()
+
+	for _, msg := range messageArray {
+		writeLogLn(logFileHandle, fmt.Sprintf("%v %v.%v %v %v %v %v %v", msg.Timestamp, msg.Facility, msg.Severity, thisLogHeaders.drainToken, msg.Hostname, msg.AppName, msg.ProcID, msg.Message))
+	}
 
 	logFileMutex.Unlock()
+
+	log.Println(req.RemoteAddr, req.Method, req.URL.Path, thisLogHeaders.drainToken, thisLogHeaders.frameID, http.StatusOK)
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -155,6 +127,12 @@ func main() {
 		log.Fatal("Environment variables LOG_DIRECTORY, LOG_DIR_MODE and LOG_FILE_MODE not all set")
 	}
 	// TODO implement log directory and file mode
+
+	logFileHandle, err := os.OpenFile(os.Getenv("LOG_DIRECTORY"), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
+	if err != nil {
+		log.Fatal("Error opening logfile:", err.Error())
+	}
+	defer logFileHandle.Close()
 
 	fmt.Println("Opening HTTP server on", host+":"+port)
 	http.HandleFunc("/log", loggingHandler)
