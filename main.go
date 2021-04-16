@@ -11,7 +11,7 @@ import (
 	"sync"
 
 	"github.com/joho/godotenv"
-	_ "github.com/logrusorgru/aurora/v3"
+	"github.com/logrusorgru/aurora/v3"
 	"github.com/tonimelisma/rfc5424"
 )
 
@@ -103,8 +103,7 @@ func loggingHandler(w http.ResponseWriter, req *http.Request) {
 		// TODO get directory mode from .env file
 		os.MkdirAll(logFileDir, 0755)
 		logFilePath := filepath.Join(logFileDir, fmt.Sprintf("%v-%v-%v.log", msg.Hostname, msg.AppName, msg.ProcID))
-		// logLine := fmt.Sprintf(aurora.Magenta("%v %v.%v", msg.Timestamp, msg.Facility, msg.Severity))
-		logLine := fmt.Sprintf("%v %v.%v %v %v %v %v", msg.Timestamp, msg.Facility, msg.Severity, msg.Hostname, msg.AppName, msg.ProcID, msg.Message)
+		logLine := aurora.Sprintf(aurora.Magenta("%v %v %v %v %v"), msg.Timestamp, msg.Severity, aurora.Green(msg.AppName), aurora.Green(msg.ProcID), aurora.White(msg.Message))
 		writeLogLn(logFilePath, logLine)
 	}
 
