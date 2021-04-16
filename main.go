@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/joho/godotenv"
+	_ "github.com/logrusorgru/aurora/v3"
 	"github.com/tonimelisma/rfc5424"
 )
 
@@ -93,6 +94,8 @@ func loggingHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// TODO implement duplicate detection via rotating slice of frame IDs
+
 	logFileMutex.Lock()
 
 	for _, msg := range messageArray {
@@ -100,7 +103,9 @@ func loggingHandler(w http.ResponseWriter, req *http.Request) {
 		// TODO get directory mode from .env file
 		os.MkdirAll(logFileDir, 0755)
 		logFilePath := filepath.Join(logFileDir, fmt.Sprintf("%v-%v-%v.log", msg.Hostname, msg.AppName, msg.ProcID))
-		writeLogLn(logFilePath, fmt.Sprintf("%v %v.%v %v %v %v %v", msg.Timestamp, msg.Facility, msg.Severity, msg.Hostname, msg.AppName, msg.ProcID, msg.Message))
+		// logLine := fmt.Sprintf(aurora.Magenta("%v %v.%v", msg.Timestamp, msg.Facility, msg.Severity))
+		logLine := fmt.Sprintf("%v %v.%v %v %v %v %v", msg.Timestamp, msg.Facility, msg.Severity, msg.Hostname, msg.AppName, msg.ProcID, msg.Message)
+		writeLogLn(logFilePath, logLine)
 	}
 
 	logFileMutex.Unlock()
@@ -139,8 +144,8 @@ func main() {
 	}
 	// TODO implement log directory and file mode
 
-	fmt.Println("Opening HTTP server on", host+":"+port)
 	http.HandleFunc("/log", loggingHandler)
+	fmt.Println("HTTP server started on", host+":"+port)
 	err = http.ListenAndServeTLS(host+":"+port, sslCert, sslKey, nil)
 	if err != nil {
 		log.Fatal("Error from HTTP server:", err.Error())
