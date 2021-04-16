@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 
@@ -21,9 +22,15 @@ type logHeaders struct {
 }
 
 var logFileMutex sync.Mutex
-var logFileHandle *os.File
 
-func writeLogLn(logFileHandle *os.File, line string) {
+func writeLogLn(path string, line string) {
+	// TODO get file mode from .env file
+	logFileHandle, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
+	if err != nil {
+		log.Fatal("Error opening logfile:", err.Error())
+	}
+	defer logFileHandle.Close()
+
 	n, err := logFileHandle.WriteString(line + "\n")
 	if err != nil {
 		log.Fatal("Error writing to logfile:", n, err.Error())
@@ -89,7 +96,11 @@ func loggingHandler(w http.ResponseWriter, req *http.Request) {
 	logFileMutex.Lock()
 
 	for _, msg := range messageArray {
-		writeLogLn(logFileHandle, fmt.Sprintf("%v %v.%v %v %v %v %v %v", msg.Timestamp, msg.Facility, msg.Severity, thisLogHeaders.drainToken, msg.Hostname, msg.AppName, msg.ProcID, msg.Message))
+		logFileDir := filepath.Join(os.Getenv("LOG_DIRECTORY"), thisLogHeaders.drainToken)
+		// TODO get directory mode from .env file
+		os.MkdirAll(logFileDir, 0755)
+		logFilePath := filepath.Join(logFileDir, fmt.Sprintf("%v-%v-%v.log", msg.Hostname, msg.AppName, msg.ProcID))
+		writeLogLn(logFilePath, fmt.Sprintf("%v %v.%v %v %v %v %v", msg.Timestamp, msg.Facility, msg.Severity, msg.Hostname, msg.AppName, msg.ProcID, msg.Message))
 	}
 
 	logFileMutex.Unlock()
@@ -128,16 +139,10 @@ func main() {
 	}
 	// TODO implement log directory and file mode
 
-	logFileHandle, err := os.OpenFile(os.Getenv("LOG_DIRECTORY"), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
-	if err != nil {
-		log.Fatal("Error opening logfile:", err.Error())
-	}
-	defer logFileHandle.Close()
-
 	fmt.Println("Opening HTTP server on", host+":"+port)
 	http.HandleFunc("/log", loggingHandler)
 	err = http.ListenAndServeTLS(host+":"+port, sslCert, sslKey, nil)
 	if err != nil {
-		log.Fatal("Error starting HTTP server:", err.Error())
+		log.Fatal("Error from HTTP server:", err.Error())
 	}
 }
