@@ -81,6 +81,14 @@ func loggingHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if os.Getenv("LOG_DRAIN_TOKEN") != "" {
+		if os.Getenv("LOG_DRAIN_TOKEN") != thisLogHeaders.drainToken {
+			log.Println(req.RemoteAddr, req.Method, req.URL.Path, thisLogHeaders.drainToken, thisLogHeaders.frameID, http.StatusBadRequest, "invalid drain token")
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+	}
+
 	messageArray, err := rfc5424.ParseMultiple(req.Body)
 	if err != nil {
 		log.Println(req.RemoteAddr, req.Method, req.URL.Path, thisLogHeaders.drainToken, thisLogHeaders.frameID, http.StatusBadRequest, "couldn't parse body:", err.Error())
@@ -136,6 +144,10 @@ func main() {
 	sslKey := os.Getenv("SSL_KEY_FILE")
 	if sslKey == "" {
 		log.Fatal("Environment variable SSL_KEY_FILE not defined")
+	}
+
+	if os.Getenv("LOG_DRAIN_TOKEN") == "" {
+		log.Println("Drain token not defined - potential security issue: will allow all log messages")
 	}
 
 	if os.Getenv("LOG_DIRECTORY") == "" || os.Getenv("LOG_DIR_MODE") == "" || os.Getenv("LOG_FILE_MODE") == "" {

@@ -18,6 +18,6 @@ reasonable timeframe.
 ## Caveats
 - Fields such as the hostname and message facility are not stored in the logs as to my knowledge Heroku does not use these
 - Directory and file permissions stored in ``.env`` are not used. The program defaults to 0755/0644 for directories/iles
-- HTTP authentication is not implemented
+- HTTP authentication is not implemented, but defining the log drain token filters any log messages sent without it
 - To view the coloring properly in ``less``, run it as ``less -r filename.log``
 - Duplicate detection via the frame-ID header has not been implemented
